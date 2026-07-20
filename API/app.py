@@ -634,14 +634,14 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
             d_b = obs_b[tow][s]
             pr_b, pr_r, cp_b, cp_r, wave_sys = None, None, None, None, None
             
-            # --- MODIFICACIÓN V14: Lógica Heterogénea Independiente por Satélite ---
-            if d_b.get('C5') and d_r.get('C5') and d_b.get('L5') and d_r.get('L5'):
+            # --- MODIFICACIÓN V14: Lógica Heterogénea Independiente por Satélite (Relajada para Android) ---
+            if d_b.get('C5') and d_r.get('C5'):
                 pr_b, pr_r = d_b['C5'], d_r['C5']
-                cp_b, cp_r = d_b['L5'], d_r['L5']
+                cp_b, cp_r = d_b.get('L5'), d_r.get('L5')
                 wave_sys = WAVE_L5
-            elif d_b.get('C1') and d_r.get('C1') and d_b.get('L1') and d_r.get('L1'):
+            elif d_b.get('C1') and d_r.get('C1'):
                 pr_b, pr_r = d_b['C1'], d_r['C1']
-                cp_b, cp_r = d_b['L1'], d_r['L1']
+                cp_b, cp_r = d_b.get('L1'), d_r.get('L1')
                 wave_sys = WAVE_L1
                 
             if not pr_b or not pr_r or not wave_sys: continue
@@ -711,9 +711,8 @@ def procesar_ekF_lambda(sd_epoca, nav, sp3, kf_estado, tr, mask_angle, snr_mask)
         X_pri = [[kf_estado['X'][0][0]], [kf_estado['X'][1][0]], [kf_estado['X'][2][0]]]
         
         # --- MODIFICACIÓN V14: Inyección de Ruido de Proceso (Q) ---
-        # Evita la rigidez del modelo y el colapso del RMS a 0.0
         Q_noise = matid(3)
-        for i in range(3): Q_noise[i][i] = 0.001 # Varianza de caminata aleatoria (1 mm^2)
+        for i in range(3): Q_noise[i][i] = 0.001 
         P_pri = matadd(kf_estado['P'], Q_noise)
         
         h_r = kf_estado.get('h_r', 0.0)
@@ -879,16 +878,15 @@ def procesar_ekF_lambda(sd_epoca, nav, sp3, kf_estado, tr, mask_angle, snr_mask)
                     
                     ratio = dist_to_second / max(1e-6, dist_to_nearest)
                     
-                    if ratio > 3.0: # Umbral estricto para aceptar ambigüedad entera
+                    if ratio > 3.0: 
                         L.append([(DD_CP_m - amb_restored * wave) - DD_CP_calc])
                         H.append(dx_geom)
-                        R_diag.append(var_base * 1e-6) # Alta confianza en fase
+                        R_diag.append(var_base * 1e-6) 
                         kf_estado['fix_flags'] += 1
                     else:
-                        # Fallback a FLOAT si no pasa el Ratio Test
                         L.append([(DD_CP_m - ambiguity_float * wave) - DD_CP_calc])
                         H.append(dx_geom)
-                        R_diag.append(var_base * 0.01) # Confianza intermedia
+                        R_diag.append(var_base * 0.01)
 
         if not H: return None, "FAILED", kf_estado, None
         
