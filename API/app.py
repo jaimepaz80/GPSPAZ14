@@ -1717,10 +1717,25 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
     elif es < 500:
         sug_iter = 5
     
-    b_ini_str = f"{b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]}" if b_ini else "N/A"
-    b_fin_str = f"{b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]}" if b_fin else "N/A"
-    r_ini_str = f"{r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]}" if r_ini else "N/A"
-    r_fin_str = f"{r_fin[3]:02d}:{r_fin[4]:02d}:{r_fin[5]}" if r_fin else "N/A"
+    if b_ini:
+        b_ini_str = f"{b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]}"
+    else:
+        b_ini_str = "N/A"
+        
+    if b_fin:
+        b_fin_str = f"{b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]}"
+    else:
+        b_fin_str = "N/A"
+        
+    if r_ini:
+        r_ini_str = f"{r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]}"
+    else:
+        r_ini_str = "N/A"
+        
+    if r_fin:
+        r_fin_str = f"{r_fin[3]:02d}:{r_fin[4]:02d}:{r_fin[5]}"
+    else:
+        r_fin_str = "N/A"
     
     informe = f"""
 ========================================================================
@@ -1755,9 +1770,21 @@ def generar_informe_ascii(tipo, p_dict):
     else:
         estado_sol = 'FLOAT (EKF)'
         
-    err_h_str = f"± {f_14(p_dict['err_h'])} m (Vinculante)" if p_dict['err_h'] > 0 else 'Inactiva'
-    err_v_str = f"± {f_14(p_dict['err_v'])} m (Vinculante)" if p_dict['err_v'] > 0 else 'Inactiva'
-    sp3_str = p_dict['sp3_file'] if p_dict.get('sp3_file') else "No provisto (Fallback a Broadcast NAV)"
+    if p_dict['err_h'] > 0:
+        err_h_str = f"± {f_14(p_dict['err_h'])} m (Vinculante)"
+    else:
+        err_h_str = 'Inactiva'
+        
+    if p_dict['err_v'] > 0:
+        err_v_str = f"± {f_14(p_dict['err_v'])} m (Vinculante)"
+    else:
+        err_v_str = 'Inactiva'
+        
+    if p_dict.get('sp3_file'):
+        sp3_str = p_dict['sp3_file']
+    else:
+        sp3_str = "No provisto (Fallback a Broadcast NAV)"
+        
     nav_str = p_dict.get('nav_file', "auto_nav.nav")
     
     val_total = max(1, p_dict['total'])
@@ -1827,7 +1854,8 @@ def generar_informe_ascii(tipo, p_dict):
 @app.route('/')
 def index():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return send_file(os.path.join(base_dir, 'index.html'))
+    index_path = os.path.join(base_dir, 'index.html')
+    return send_file(index_path)
 
 @app.route('/API/tab1_homogenizar', methods=['POST'])
 def tab1_homogenizar():
@@ -1964,13 +1992,19 @@ def tab2_efemerides():
                 yield "> [ERROR FATAL] Falta RINEX Base en memoria para extraer fecha.\n"
                 return
             
+            # EXTRACCIÓN ESTRICTA DE LA FECHA REAL DEL RINEX (DATO MATA RELATO)
             ft = obtener_fecha_obs(bp)
             if not ft:
                 yield "> [ERROR FATAL] Imposible extraer la fecha del RINEX Base.\n"
                 return
             
-            year, month, day = ft[0], ft[1], ft[2]
+            year = ft[0]
+            month = ft[1]
+            day = ft[2]
+            
+            # CÁLCULO MATEMÁTICO DEL DÍA JULIANO BASADO EN EL ARCHIVO DE OBSERVACIÓN (1 DE JULIO)
             doy = datetime.datetime(year, month, day).timetuple().tm_yday
+            yield f"  [-] Fecha detectada en RINEX: {year}-{month:02d}-{day:02d} (Día Juliano: {doy:03d})\n"
             
             nav_gz = os.path.join(UPLOAD_FOLDER, f"auto_nav_{year}_{doy:03d}.nav.gz")
             nav_path = os.path.join(UPLOAD_FOLDER, f"auto_nav_{year}_{doy:03d}.nav")
@@ -1980,6 +2014,7 @@ def tab2_efemerides():
             ctx.verify_mode = ssl.CERT_NONE
             
             if not os.path.exists(nav_path):
+                # RUTAS OFICIALES IGS USANDO EL DÍA JULIANO REAL CORRESPONDIENTE A LA SESIÓN
                 urls_to_try = [
                     f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDC00IGS_R_{year}{doy:03d}0000_01D_MN.rnx.gz",
                     f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDM00DLR_S_{year}{doy:03d}0000_01D_MN.rnx.gz",
@@ -1990,27 +2025,32 @@ def tab2_efemerides():
                 for url_nav in urls_to_try:
                     try:
                         file_name_url = url_nav.split('/')[-1]
-                        yield f"  [-] Intentando descargar NAV desde: {file_name_url}...\n"
+                        yield f"  [-] Intentando descargar NAV del día {doy:03d} desde: {file_name_url}...\n"
                         req = urllib.request.Request(url_nav, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(req, context=ctx, timeout=8) as res, open(nav_gz, 'wb') as f:
-                            f.write(res.read())
+                        with urllib.request.urlopen(req, context=ctx, timeout=15) as res:
+                            with open(nav_gz, 'wb') as f:
+                                f.write(res.read())
                         descargado = True
-                        yield f"  [+] Descarga exitosa de {file_name_url}\n"
+                        yield f"  [+] Descarga exitosa del archivo NAV histórico\n"
                         break 
-                    except:
+                    except Exception as e:
                         continue
                 
                 if not descargado:
-                    raise Exception("HTTP 404: Ningún servidor IGS ha publicado aún el archivo NAV de este día.")
+                    raise Exception(f"HTTP 404: No se pudo descargar el NAV para el año {year} día {doy:03d}.")
                 
                 yield "  [-] Descomprimiendo archivo NAV de alta densidad...\n"
-                with gzip.open(nav_gz, 'rb') as f_in, open(nav_path, 'wb') as f_out: 
-                    shutil.copyfileobj(f_in, f_out)
-                if os.path.exists(nav_gz): os.remove(nav_gz)
+                with gzip.open(nav_gz, 'rb') as f_in:
+                    with open(nav_path, 'wb') as f_out: 
+                        shutil.copyfileobj(f_in, f_out)
+                        
+                if os.path.exists(nav_gz):
+                    os.remove(nav_gz)
             
             guardar_estado('nav_path', nav_path)
             guardar_estado('name_nav_file', os.path.basename(nav_path))
-            yield f"  [-] Archivo NAV listo y ensamblado en memoria.\n\n[SUCCESS]"
+            yield f"  [-] Archivo NAV del día {doy:03d} listo y ensamblado en memoria.\n\n[SUCCESS]"
+            
         except Exception as e:
             yield f"\n> [ERROR FATAL] Fallo en descarga automática NAV: {str(e)}\n"
 
@@ -2018,9 +2058,18 @@ def tab2_efemerides():
 
 @app.route('/API/tab3_calibrar', methods=['POST'])
 def tab3_calibrar():
-    utm_n, utm_e, utm_c, utm_h, utm_hem = leer_estado('utm_norte'), leer_estado('utm_este'), leer_estado('utm_cota'), leer_estado('utm_huso'), leer_estado('utm_hemisferio')
-    utm_n_r, utm_e_r, utm_c_r = leer_estado('utm_norte_r'), leer_estado('utm_este_r'), leer_estado('utm_cota_r')
-    h_b, h_r = leer_estado('altura_base'), leer_estado('altura_rover')
+    utm_n = leer_estado('utm_norte')
+    utm_e = leer_estado('utm_este')
+    utm_c = leer_estado('utm_cota')
+    utm_h = leer_estado('utm_huso')
+    utm_hem = leer_estado('utm_hemisferio')
+
+    utm_n_r = leer_estado('utm_norte_r')
+    utm_e_r = leer_estado('utm_este_r')
+    utm_c_r = leer_estado('utm_cota_r')
+
+    h_b = leer_estado('altura_base')
+    h_r = leer_estado('altura_rover')
 
     p_max_gap = safe_f(request.form.get('param_max_gap'), 0.5)
     p_snr = safe_f(request.form.get('param_snr'), 25.0)
@@ -2030,17 +2079,28 @@ def tab3_calibrar():
     def procesar():
         try:
             yield f"> [SISTEMA] Iniciando Búsqueda Determinista (EKF RAM-Safe | {p_iter} Iteraciones)...\n"
+            
             if utm_e == 0.0 or utm_n == 0.0 or utm_n_r == 0.0 or utm_e_r == 0.0: 
                 yield "> [ERROR] Coordenadas Base y Rover no inyectadas correctamente.\n"
                 return
             
-            nav_path, sp3_path, p_b_h, p_r_h = leer_estado('nav_path'), leer_estado('sp3_path'), leer_estado('base_calib_homo'), leer_estado('rover_calib_homo')
+            nav_path = leer_estado('nav_path')
+            sp3_path = leer_estado('sp3_path')
+            p_b_h = leer_estado('base_calib_homo')
+            p_r_h = leer_estado('rover_calib_homo')
+
             if not nav_path or not p_b_h or not p_r_h: 
                 yield "> [ERROR FATAL] Faltan archivos. Ve a la Pestaña 2.\n"
                 return
 
-            obs_b_raw, obs_r_raw, nav = parse_rinex_obs_completo(p_b_h), parse_rinex_obs_completo(p_r_h), parse_rinex_nav_real(nav_path)
-            sp3 = parse_sp3_preciso(sp3_path) if sp3_path else {}
+            obs_b_raw = parse_rinex_obs_completo(p_b_h)
+            obs_r_raw = parse_rinex_obs_completo(p_r_h)
+            nav = parse_rinex_nav_real(nav_path)
+            
+            if sp3_path:
+                sp3 = parse_sp3_preciso(sp3_path)
+            else:
+                sp3 = {}
             
             tipo_mod, razon_mod = analizar_calidad_y_senales_rinex(obs_b_raw, obs_r_raw)
             is_homogeneo = (tipo_mod == "MODO_A_CODIGO")
@@ -2058,72 +2118,164 @@ def tab3_calibrar():
                 return
 
             t_sample = list(sd_suavizada.keys())
-            lat_b, lon_b = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem)[:2]
-            X_b, Y_b, Z_b = geodesicas_a_ecef(lat_b, lon_b, utm_c + h_b)
-            X_bg, Y_bg, Z_bg = geodesicas_a_ecef(lat_b, lon_b, utm_c)
+            
+            res_utm_b = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem)
+            lat_b = res_utm_b[0]
+            lon_b = res_utm_b[1]
+            
+            res_ecef_b = geodesicas_a_ecef(lat_b, lon_b, utm_c + h_b)
+            X_b = res_ecef_b[0]
+            Y_b = res_ecef_b[1]
+            Z_b = res_ecef_b[2]
+            
+            res_ecef_bg = geodesicas_a_ecef(lat_b, lon_b, utm_c)
+            X_bg = res_ecef_bg[0]
+            Y_bg = res_ecef_bg[1]
+            Z_bg = res_ecef_bg[2]
 
             yield "[PROGRESO] Fase 1: Extracción de Límites (Pre-Scan EKF)...\n"
             P_init = matid(3)
-            for i in range(3): P_init[i][i] = 100.0
-            kf_estado_raw = {'X': [[X_bg], [Y_bg], [Z_bg]], 'P': P_init, 'X_base': (X_b, Y_b, Z_b), 'fix_flags': 0, 'h_r': h_r}
+            for i in range(3):
+                P_init[i][i] = 100.0
+            
+            kf_estado_raw = {
+                'X': [[X_bg], [Y_bg], [Z_bg]], 
+                'P': P_init, 
+                'X_base': (X_b, Y_b, Z_b), 
+                'fix_flags': 0, 
+                'h_r': h_r
+            }
+            
             coords_raw = []
             
             for t in t_sample:
                 sem, status, kf_estado_raw, _ = procesar_ekF_lambda(sd_suavizada[t], nav, sp3, kf_estado_raw, t, 10.0, p_snr)
                 if sem:
-                    la, lo, al = ecef_a_geodesicas(sem[0], sem[1], sem[2])
-                    nt, et = geodesicas_a_utm(la, lo, utm_h)
+                    res_geo_sem = ecef_a_geodesicas(sem[0], sem[1], sem[2])
+                    la = res_geo_sem[0]
+                    lo = res_geo_sem[1]
+                    al = res_geo_sem[2]
+                    
+                    res_utm_sem = geodesicas_a_utm(la, lo, utm_h)
+                    nt = res_utm_sem[0]
+                    et = res_utm_sem[1]
+                    
                     coords_raw.append((nt, et, al, status))
             
             if not coords_raw:
                 yield "> [ERROR] Filtro de Kalman colapsado.\n"
                 return
                 
-            deltas_h, deltas_v = [], []
+            deltas_h = []
+            deltas_v = []
             for c in coords_raw:
-                deltas_h.append(math.hypot(c[0] - utm_n_r, c[1] - utm_e_r))
-                deltas_v.append(abs(c[2] - utm_c_r))
-            deltas_h.sort(); deltas_v.sort()
+                dh = math.hypot(c[0] - utm_n_r, c[1] - utm_e_r)
+                dv = abs(c[2] - utm_c_r)
+                deltas_h.append(dh)
+                deltas_v.append(dv)
+                
+            deltas_h.sort()
+            deltas_v.sort()
             
             def get_mad(data):
-                if not data: return 0.0, 0.0
-                med = data[len(data) // 2]
-                abs_diffs = sorted([abs(x - med) for x in data])
-                return med, abs_diffs[len(abs_diffs) // 2]
+                if not data:
+                    return 0.0, 0.0
+                idx_med = len(data) // 2
+                med = data[idx_med]
+                
+                abs_diffs = []
+                for x in data:
+                    abs_diffs.append(abs(x - med))
+                abs_diffs.sort()
+                mad = abs_diffs[len(abs_diffs) // 2]
+                
+                return med, mad
 
             med_h, mad_h = get_mad(deltas_h)
             med_v, mad_v = get_mad(deltas_v)
-            best_eh, best_ev = max(0.01, med_h + 3.0 * mad_h), max(0.01, med_v + 3.0 * mad_v)
+            
+            best_eh = max(0.01, med_h + 3.0 * mad_h)
+            best_ev = max(0.01, med_v + 3.0 * mad_v)
             
             yield f"  [*] Límite Horizontal EKF Inyectado: {f_14(best_eh)} m\n"
             yield f"  [*] Límite Vertical EKF Inyectado: {f_14(best_ev)} m\n\n"
+            
             yield f"[PROGRESO] Fase 2: Malla Pentadimensional EKF (Con Seguimiento Global)...\n"
             
-            global_best_score, best_rmse, best_params = float('inf'), float('inf'), {}
-            m_center, m_span, cp_center, cp_span, ca_center, ca_span = 10.0, 5.0, 2.0, 1.5, 2.0, 1.5
-            snr_center, snr_span, gap_center, gap_span = p_snr, 5.0, p_max_gap, 0.2
+            global_best_score = float('inf')
+            best_rmse = float('inf')
+            best_params = {}
+            
+            m_center = 10.0
+            m_span = 5.0
+            cp_center = 2.0
+            cp_span = 1.5
+            ca_center = 2.0
+            ca_span = 1.5
+            snr_center = p_snr
+            snr_span = 5.0
+            gap_center = p_max_gap
+            gap_span = 0.2
             
             p_b_raw = leer_estado('base_raw')
             p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
-            obs_b_full = parse_rinex_obs_completo(p_b_raw) if p_b_raw and os.path.exists(p_b_raw) else obs_b_raw
-            obs_r_full = parse_rinex_obs_completo(p_r_raw) if os.path.exists(p_r_raw) else obs_r_raw
-            rover_tows_full, base_tows_full = sorted(list(obs_r_full.keys())), sorted(list(obs_b_full.keys()))
+            
+            if p_b_raw and os.path.exists(p_b_raw):
+                obs_b_full = parse_rinex_obs_completo(p_b_raw)
+            else:
+                obs_b_full = obs_b_raw
+                
+            if os.path.exists(p_r_raw):
+                obs_r_full = parse_rinex_obs_completo(p_r_raw)
+            else:
+                obs_r_full = obs_r_raw
+                
+            rover_tows_full = sorted(list(obs_r_full.keys()))
+            base_tows_full = sorted(list(obs_b_full.keys()))
             
             for nivel in range(p_iter):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/{p_iter})...\n"
-                m_grid = [max(1.0, min(25.0, m_center - m_span)), max(1.0, min(25.0, m_center)), max(1.0, min(25.0, m_center + m_span))]
-                cp_grid = [max(0.1, min(5.0, cp_center - cp_span)), max(0.1, min(5.0, cp_center)), max(0.1, min(5.0, cp_center + cp_span))]
-                ca_grid = [max(0.1, min(5.0, ca_center - ca_span)), max(0.1, min(5.0, ca_center)), max(0.1, min(5.0, ca_center + ca_span))]
-                snr_grid = [max(25.0, min(45.0, snr_center - snr_span)), max(25.0, min(45.0, snr_center)), max(25.0, min(45.0, snr_center + snr_span))]
-                gap_grid = [max(0.01, min(2.0, gap_center - gap_span)), max(0.01, min(2.0, gap_center)), max(0.01, min(2.0, gap_center + gap_span))]
                 
-                nivel_best_rmse, nivel_best_params = float('inf'), {}
+                m_grid = [
+                    max(1.0, min(25.0, m_center - m_span)),
+                    max(1.0, min(25.0, m_center)),
+                    max(1.0, min(25.0, m_center + m_span))
+                ]
+                
+                cp_grid = [
+                    max(0.1, min(5.0, cp_center - cp_span)),
+                    max(0.1, min(5.0, cp_center)),
+                    max(0.1, min(5.0, cp_center + cp_span))
+                ]
+                
+                ca_grid = [
+                    max(0.1, min(5.0, ca_center - ca_span)),
+                    max(0.1, min(5.0, ca_center)),
+                    max(0.1, min(5.0, ca_center + ca_span))
+                ]
+                
+                snr_grid = [
+                    max(25.0, min(45.0, snr_center - snr_span)),
+                    max(25.0, min(45.0, snr_center)),
+                    max(25.0, min(45.0, snr_center + snr_span))
+                ]
+                
+                gap_grid = [
+                    max(0.01, min(2.0, gap_center - gap_span)),
+                    max(0.01, min(2.0, gap_center)),
+                    max(0.01, min(2.0, gap_center + gap_span))
+                ]
+                
+                nivel_best_rmse = float('inf')
+                nivel_best_params = {}
                 
                 for gap in set(gap_grid):
+                    
                     if is_homogeneo:
                         obs_b_sync = {}
                         for tr in rover_tows_full:
-                            if not base_tows_full: continue
+                            if not base_tows_full:
+                                continue
                             idx = min(range(len(base_tows_full)), key=lambda i: abs(base_tows_full[i] - tr))
                             if abs(base_tows_full[idx] - tr) <= gap:
                                 obs_b_sync[tr] = obs_b_full[base_tows_full[idx]].copy()
@@ -2133,50 +2285,121 @@ def tab3_calibrar():
                         sd_suav = aislar_diferencias_simples_ppk_asincrono(obs_b_full, obs_r_full, max_gap=gap)
                         
                     t_samp = list(sd_suav.keys())
-                    if not sd_suav: continue
+                    if not sd_suav:
+                        continue
                     
                     for m in set(m_grid):
                         for snr in set(snr_grid):
-                            kf_est = {'X': [[X_bg], [Y_bg], [Z_bg]], 'P': P_init, 'X_base': (X_b, Y_b, Z_b), 'fix_flags': 0, 'h_r': h_r}
+                            kf_est = {
+                                'X': [[X_bg], [Y_bg], [Z_bg]], 
+                                'P': P_init, 
+                                'X_base': (X_b, Y_b, Z_b), 
+                                'fix_flags': 0, 
+                                'h_r': h_r
+                            }
                             coords = []
                             for t in t_samp:
                                 sem, status, kf_est, _ = procesar_ekF_lambda(sd_suav[t], nav, sp3, kf_est, t, m, snr)
                                 if sem:
-                                    la, lo, al = ecef_a_geodesicas(sem[0], sem[1], sem[2])
-                                    nt, et = geodesicas_a_utm(la, lo, utm_h)
+                                    res_geo = ecef_a_geodesicas(sem[0], sem[1], sem[2])
+                                    la = res_geo[0]
+                                    lo = res_geo[1]
+                                    al = res_geo[2]
+                                    
+                                    res_utm = geodesicas_a_utm(la, lo, utm_h)
+                                    nt = res_utm[0]
+                                    et = res_utm[1]
+                                    
                                     coords.append((nt, et, al, status))
-                            if not coords: continue
+                            
+                            if not coords:
+                                continue
                             
                             for cp in set(cp_grid):
                                 for ca in set(ca_grid):
                                     res = estadistica_desacoplada(coords, cp, ca, best_eh, best_ev)
-                                    if res[0] is None: continue
-                                    nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
-                                    if ret < max(15, int(len(coords) * 0.05)): continue
+                                    if res[0] is None:
+                                        continue
+                                        
+                                    nf = res[0]
+                                    ef = res[1]
+                                    zf = res[2]
+                                    std_n = res[3]
+                                    std_e = res[4]
+                                    std_z = res[5]
+                                    ret = res[6]
+                                    fix_ratio = res[7]
+                                    
+                                    min_epochs = max(15, int(len(coords) * 0.05))
+                                    if ret < min_epochs:
+                                        continue
                                     
                                     rmse_3d = math.sqrt((nf - utm_n_r)**2 + (ef - utm_e_r)**2 + (zf - utm_c_r)**2)
                                     score = (rmse_3d ** 3) * (1.0 + gap * 0.05) * (1.0 + (1.0 - (fix_ratio/100.0)) * 2.0)
                                     
                                     if score < nivel_best_rmse:
                                         nivel_best_rmse = score
-                                        nivel_best_params = {'m': m, 'snr': snr, 'gap': gap, 'cp': cp, 'ca': ca, 'rmse': rmse_3d}
+                                        nivel_best_params = {
+                                            'm': m, 
+                                            'snr': snr, 
+                                            'gap': gap, 
+                                            'cp': cp, 
+                                            'ca': ca, 
+                                            'rmse': rmse_3d
+                                        }
+                                        
                                         if score < global_best_score:
-                                            global_best_score, best_rmse = score, rmse_3d
-                                            best_params = {'mask': m, 'cp': cp, 'ca': ca, 'eh': best_eh, 'ev': best_ev, 'max_gap': gap, 'snr': snr, 'rmse': rmse_3d, 'ret': ret, 'dn': nf - utm_n_r, 'de': ef - utm_e_r, 'dz': zf - utm_c_r}
+                                            global_best_score = score
+                                            best_rmse = rmse_3d
+                                            best_params = {
+                                                'mask': m, 
+                                                'cp': cp, 
+                                                'ca': ca, 
+                                                'eh': best_eh, 
+                                                'ev': best_ev,
+                                                'max_gap': gap, 
+                                                'snr': snr,
+                                                'rmse': rmse_3d, 
+                                                'ret': ret,
+                                                'dn': nf - utm_n_r, 
+                                                'de': ef - utm_e_r, 
+                                                'dz': zf - utm_c_r
+                                            }
                 
                 if nivel_best_rmse != float('inf'):
-                    yield f"  [*] Fin Iteración {nivel+1} | Mejor RMSE Local: {f_14(nivel_best_params['rmse'])} m\n\n"
+                    val_m = f_14(nivel_best_params['m'])
+                    val_snr = f_14(nivel_best_params['snr'])
+                    val_gap = f_14(nivel_best_params['gap'])
+                    val_cp = f_14(nivel_best_params['cp'])
+                    val_ca = f_14(nivel_best_params['ca'])
+                    val_rmse = f_14(nivel_best_params['rmse'])
+                    
+                    yield f"  [*] Fin Iteración {nivel+1} | Mejor RMSE Local: {val_rmse} m\n"
+                    yield f"      Parámetros Ganadores -> Mask: {val_m}°, SNR: {val_snr}dBHz, Gap: {val_gap}s, CP: {val_cp}, CA: {val_ca}\n\n"
                 else:
                     yield f"  [!] Iteración {nivel+1} sin convergencia válida localmente.\n\n"
 
                 if global_best_score != float('inf'):
-                    m_center, m_span = best_params['mask'], m_span / 2.0
-                    cp_center, cp_span = best_params['cp'], cp_span / 2.0
-                    ca_center, ca_span = best_params['ca'], ca_span / 2.0
-                    snr_center, snr_span = best_params['snr'], snr_span / 2.0
-                    gap_center, gap_span = best_params['max_gap'], gap_span / 2.0
+                    m_center = best_params['mask']
+                    m_span = m_span / 2.0
+                    
+                    cp_center = best_params['cp']
+                    cp_span = cp_span / 2.0
+                    
+                    ca_center = best_params['ca']
+                    ca_span = ca_span / 2.0
+                    
+                    snr_center = best_params['snr']
+                    snr_span = snr_span / 2.0
+                    
+                    gap_center = best_params['max_gap']
+                    gap_span = gap_span / 2.0
                 else:
-                    m_span, cp_span, ca_span, snr_span, gap_span = m_span/2.0, cp_span/2.0, ca_span/2.0, snr_span/2.0, gap_span/2.0
+                    m_span /= 2.0
+                    cp_span /= 2.0
+                    ca_span /= 2.0
+                    snr_span /= 2.0
+                    gap_span /= 2.0
             
             if global_best_score != float('inf'):
                 guardar_estado('opt_mask', best_params['mask'])
@@ -2187,24 +2410,38 @@ def tab3_calibrar():
                 guardar_estado('opt_eh', best_params['eh'])
                 guardar_estado('opt_ev', best_params['ev'])
 
+                v_gap = f_14(best_params['max_gap'])
+                v_snr = f_14(best_params['snr'])
+                v_mask = f_14(best_params['mask'])
+                v_cp = f_14(best_params['cp'])
+                v_ca = f_14(best_params['ca'])
+                v_eh = f_14(best_params['eh'])
+                v_ev = f_14(best_params['ev'])
+                v_rmse = f_14(best_params['rmse'])
+                v_dn = f_14(best_params['dn'])
+                v_de = f_14(best_params['de'])
+                v_dz = f_14(best_params['dz'])
+                v_ret = best_params['ret']
+
                 yield "\n========================================================\n"
                 yield "      [INFORME] PARÁMETROS ÓPTIMOS GLOBALES (CALIBRACIÓN EKF/PPK)\n"
                 yield "========================================================\n"
-                yield f"  [-] Tolerancia Sync (max_gap): {f_14(best_params['max_gap'])}\n"
-                yield f"  [-] Máscara SNR (dBHz): {f_14(best_params['snr'])}\n"
-                yield f"  [-] Máscara Elevación (°): {f_14(best_params['mask'])}\n"
-                yield f"  [-] Filtro Sigma Plan (cp): {f_14(best_params['cp'])}\n"
-                yield f"  [-] Filtro Sigma Alt (ca): {f_14(best_params['ca'])}\n"
-                yield f"  [-] Error Permitido Horizontal (m): {f_14(best_params['eh'])}\n"
-                yield f"  [-] Error Permitido Vertical (m): {f_14(best_params['ev'])}\n"
+                yield f"  [-] Tolerancia Sync (max_gap): {v_gap}\n"
+                yield f"  [-] Máscara SNR (dBHz): {v_snr}\n"
+                yield f"  [-] Máscara Elevación (°): {v_mask}\n"
+                yield f"  [-] Filtro Sigma Plan (cp): {v_cp}\n"
+                yield f"  [-] Filtro Sigma Alt (ca): {v_ca}\n"
+                yield f"  [-] Error Permitido Horizontal (m): {v_eh}\n"
+                yield f"  [-] Error Permitido Vertical (m): {v_ev}\n"
                 yield "--------------------------------------------------------\n"
-                yield f"  [*] Menor Distancia 3D al Punto: {f_14(best_params['rmse'])} m\n"
-                yield f"  [*] Deltas Residuales -> N: {f_14(best_params['dn'])}m, E: {f_14(best_params['de'])}m, Z: {f_14(best_params['dz'])}m\n"
-                yield f"  [*] Épocas Retenidas EKF: {best_params['ret']}\n"
+                yield f"  [*] Menor Distancia 3D al Punto: {v_rmse} m\n"
+                yield f"  [*] Deltas Residuales -> N: {v_dn}m, E: {v_de}m, Z: {v_dz}m\n"
+                yield f"  [*] Épocas Retenidas EKF: {v_ret}\n"
                 yield "========================================================\n"
                 yield "\n[SUCCESS]"
             else:
-                yield "\n> [ERROR] El modelo Kalman no convergió.\n"
+                yield "\n> [ERROR] El modelo Kalman no convergió. Filtros demasiado agresivos o ruido puro en el RINEX.\n"
+                
         except Exception as e:
             yield f"\n> [ERROR FATAL] {str(e)}"
             
@@ -2212,15 +2449,30 @@ def tab3_calibrar():
 
 @app.route('/API/tab4_procesar', methods=['POST'])
 def tab4_procesar():
-    utm_n, utm_e, utm_c, utm_h, utm_hem = leer_estado('utm_norte'), leer_estado('utm_este'), leer_estado('utm_cota'), leer_estado('utm_huso'), leer_estado('utm_hemisferio')
-    h_b, h_r = leer_estado('altura_base'), leer_estado('altura_rover')
-    p_mask, p_cp, p_ca = leer_estado('opt_mask'), leer_estado('opt_cp'), leer_estado('opt_ca')
-    err_hor_max, err_ver_max = leer_estado('opt_eh'), leer_estado('opt_ev')
-    p_max_gap, p_snr = leer_estado('opt_max_gap'), leer_estado('opt_snr')
+    utm_n = leer_estado('utm_norte')
+    utm_e = leer_estado('utm_este')
+    utm_c = leer_estado('utm_cota')
+    utm_h = leer_estado('utm_huso')
+    utm_hem = leer_estado('utm_hemisferio')
+    
+    h_b = leer_estado('altura_base')
+    h_r = leer_estado('altura_rover')
+    
+    p_mask = leer_estado('opt_mask')
+    p_cp = leer_estado('opt_cp')
+    p_ca = leer_estado('opt_ca')
+    
+    err_hor_max = leer_estado('opt_eh')
+    err_ver_max = leer_estado('opt_ev')
+    
+    p_max_gap = leer_estado('opt_max_gap')
+    p_snr = leer_estado('opt_snr')
+
     url_rover_nuevo = request.form.get('url_rover_nuevo')
     
     if p_mask is None or utm_n is None:
         return Response("> [ERROR FATAL] Parámetros o coordenadas no encontrados. Ejecute la Pestaña 3 primero.\n", mimetype='text/plain')
+
     if not url_rover_nuevo or url_rover_nuevo.strip() == '': 
         return Response("> [ERROR] Falta el enlace de Drive del nuevo archivo RINEX Rover.\n", mimetype='text/plain')
 
@@ -2233,30 +2485,49 @@ def tab4_procesar():
             rf_nuevo_filename = "Drive_Nuevo_Rover.obs"
             
             yield f"\n> [SISTEMA] Iniciando Procesamiento (EKF + RTS Smoother)...\n"
-            nav_path, sp3_path, p_b_raw = leer_estado('nav_path'), leer_estado('sp3_path'), leer_estado('base_raw') 
+            
+            nav_path = leer_estado('nav_path')
+            sp3_path = leer_estado('sp3_path')
+            p_b_raw = leer_estado('base_raw') 
 
             if not nav_path or not p_b_raw or not os.path.exists(p_b_raw): 
                 yield "> [ERROR FATAL] Falta archivo RINEX Base original o Efemérides.\n"
                 return
 
-            obs_b_raw, obs_r_raw, nav = parse_rinex_obs_completo(p_b_raw), parse_rinex_obs_completo(p_r_nuevo), parse_rinex_nav_real(nav_path)
-            sp3 = parse_sp3_preciso(sp3_path) if sp3_path else {}
-            if sp3: yield "[PROGRESO] Órbitas Precisas SP3 acopladas con éxito...\n"
+            obs_b_raw = parse_rinex_obs_completo(p_b_raw)
+            obs_r_raw = parse_rinex_obs_completo(p_r_nuevo) 
+            nav = parse_rinex_nav_real(nav_path)
+            
+            if sp3_path:
+                sp3 = parse_sp3_preciso(sp3_path)
+            else:
+                sp3 = {}
+            
+            if sp3:
+                yield "[PROGRESO] Órbitas Precisas SP3 acopladas con éxito...\n"
             
             tipo_mod, razon_mod = analizar_calidad_y_senales_rinex(obs_b_raw, obs_r_raw)
             is_homogeneo = (tipo_mod == "MODO_A_CODIGO")
             
             if is_homogeneo:
-                yield f"[PROGRESO] Módulo A Activo: Sincronización Estricta ({razon_mod})...\n"
-                rover_tows, base_tows, obs_b_sync = sorted(list(obs_r_raw.keys())), sorted(list(obs_b_raw.keys())), {}
+                v_gap_str = f_14(p_max_gap)
+                yield f"[PROGRESO] Módulo A Activo: Sincronización Estricta ({razon_mod} | Gap {v_gap_str}s)...\n"
+                
+                rover_tows = sorted(list(obs_r_raw.keys()))
+                base_tows = sorted(list(obs_b_raw.keys()))
+                obs_b_sync = {}
+                
                 for tr in rover_tows:
-                    if not base_tows: continue
+                    if not base_tows:
+                        continue
                     idx = min(range(len(base_tows)), key=lambda i: abs(base_tows[i] - tr))
                     if abs(base_tows[idx] - tr) <= p_max_gap:
                         obs_b_sync[tr] = obs_b_raw[base_tows[idx]].copy()
                         obs_b_sync[tr]['_meta'] = obs_r_raw[tr]['_meta']
+                        
                 yield "[PROGRESO] Extrayendo Observables PPK...\n"
                 sd_suavizada = aislar_diferencias_simples_ppk(obs_b_sync, obs_r_raw)
+                
             else:
                 yield f"[PROGRESO] Módulo B Activo: Interpolación Polinómica Asincrónica ({razon_mod})...\n"
                 yield "[PROGRESO] Extrayendo Observables PPK...\n"
@@ -2266,20 +2537,43 @@ def tab4_procesar():
                 yield "\n> [ERROR] No hay épocas sincronizadas válidas.\n"
                 return
 
-            lat_b, lon_b = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem)[:2]
-            X_b, Y_b, Z_b = geodesicas_a_ecef(lat_b, lon_b, utm_c + h_b)
-            X_bg, Y_bg, Z_bg = geodesicas_a_ecef(lat_b, lon_b, utm_c)
+            res_utm_b = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem)
+            lat_b = res_utm_b[0]
+            lon_b = res_utm_b[1]
+            
+            res_ecef_b = geodesicas_a_ecef(lat_b, lon_b, utm_c + h_b)
+            X_b = res_ecef_b[0]
+            Y_b = res_ecef_b[1]
+            Z_b = res_ecef_b[2]
+            
+            res_ecef_bg = geodesicas_a_ecef(lat_b, lon_b, utm_c)
+            X_bg = res_ecef_bg[0]
+            Y_bg = res_ecef_bg[1]
+            Z_bg = res_ecef_bg[2]
 
             yield "[PROGRESO] Fase 1: Pasada Forward EKF + Mareas Sólidas...\n"
             P_init = matid(3)
-            for i in range(3): P_init[i][i] = 100.0
-            kf_est = {'X': [[X_bg], [Y_bg], [Z_bg]], 'P': P_init, 'X_base': (X_b, Y_b, Z_b), 'fix_flags': 0, 'h_r': h_r}
+            for i in range(3):
+                P_init[i][i] = 100.0
             
-            fwd_states, t_eps, c = [], len(sd_suavizada), 0
+            kf_est = {
+                'X': [[X_bg], [Y_bg], [Z_bg]], 
+                'P': P_init, 
+                'X_base': (X_b, Y_b, Z_b), 
+                'fix_flags': 0, 
+                'h_r': h_r
+            }
+            
+            fwd_states = []
+            t_eps = len(sd_suavizada)
+            c = 0
+            
             for t in sd_suavizada:
                 c += 1
                 if t_eps > 0 and c % max(1, t_eps // 10) == 0: 
-                    yield f"[PROGRESO] Propagando Matriz Covarianza... {int((c / t_eps) * 100)}%\n"
+                    prog_percent = int((c / t_eps) * 100)
+                    yield f"[PROGRESO] Propagando Matriz Covarianza... {prog_percent}%\n"
+                
                 sem, status, kf_est, st_dict = procesar_ekF_lambda(sd_suavizada[t], nav, sp3, kf_est, t, p_mask, p_snr)
                 if sem and st_dict:
                     st_dict['status'] = status
@@ -2294,30 +2588,72 @@ def tab4_procesar():
             
             coords = []
             for i in range(len(sm_states)):
-                la, lo, al = ecef_a_geodesicas(sm_states[i][0][0], sm_states[i][1][0], sm_states[i][2][0])
-                nt, et = geodesicas_a_utm(la, lo, utm_h)
+                sm_X = sm_states[i][0][0]
+                sm_Y = sm_states[i][1][0]
+                sm_Z = sm_states[i][2][0]
+                
+                res_geo = ecef_a_geodesicas(sm_X, sm_Y, sm_Z)
+                la = res_geo[0]
+                lo = res_geo[1]
+                al = res_geo[2]
+                
+                res_utm = geodesicas_a_utm(la, lo, utm_h)
+                nt = res_utm[0]
+                et = res_utm[1]
+                
                 coords.append((nt, et, al, fwd_states[i]['status']))
 
             res_estadistica = estadistica_desacoplada(coords, p_cp, p_ca, err_hor_max, err_ver_max)
+            
             if res_estadistica[0] is None:
                 yield "\n> [ERROR] Operación Abortada: El 100% de las épocas superan el Error Máximo configurado.\n"
                 return
                 
-            nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res_estadistica
+            nf = res_estadistica[0]
+            ef = res_estadistica[1]
+            zf = res_estadistica[2]
+            std_n = res_estadistica[3]
+            std_e = res_estadistica[4]
+            std_z = res_estadistica[5]
+            ret = res_estadistica[6]
+            fix_ratio = res_estadistica[7]
+            
             p_dict = {
-                'mask': p_mask, 'cp': p_cp, 'ca': p_ca, 'max_gap': p_max_gap, 'snr': p_snr,
-                'err_h': err_hor_max, 'err_v': err_ver_max, 'nf': nf, 'ef': ef, 'zf': zf, 
-                'ret': ret, 'total': len(coords), 'std_n': std_n, 'std_e': std_e, 'std_z': std_z,
-                'ez': std_z, 'fix_r': fix_ratio, 'base_file': leer_estado('name_base_raw'),
-                'rover_file': rf_nuevo_filename, 'nav_file': leer_estado('name_nav_file'),
-                'sp3_file': leer_estado('name_sp3_file'), 'b_n': utm_n, 'b_e': utm_e, 'b_z': utm_c,
-                'r_n_calc': nf, 'r_e_calc': ef, 'r_z_calc': zf,
+                'mask': p_mask,
+                'cp': p_cp,
+                'ca': p_ca,
+                'max_gap': p_max_gap,
+                'snr': p_snr,
+                'err_h': err_hor_max,
+                'err_v': err_ver_max,
+                'nf': nf, 
+                'ef': ef, 
+                'zf': zf, 
+                'ret': ret, 
+                'total': len(coords), 
+                'std_n': std_n, 
+                'std_e': std_e, 
+                'std_z': std_z,
+                'ez': std_z, 
+                'fix_r': fix_ratio,
+                'base_file': leer_estado('name_base_raw'),
+                'rover_file': rf_nuevo_filename,
+                'nav_file': leer_estado('name_nav_file'),
+                'sp3_file': leer_estado('name_sp3_file'),
+                'b_n': utm_n, 
+                'b_e': utm_e, 
+                'b_z': utm_c,
+                'r_n_calc': nf, 
+                'r_e_calc': ef, 
+                'r_z_calc': zf,
                 'estrategia_auditoria': f"{tipo_mod} ({razon_mod})"
             }
             
             yield "[PROGRESO] Ajuste EKF+RTS Finalizado.\n"
-            yield generar_informe_ascii("MEDICION", p_dict)
+            informe_final = generar_informe_ascii("MEDICION", p_dict)
+            yield informe_final
             yield "\n[SUCCESS]"
+            
         except Exception as e:
             yield f"\n> [ERROR FATAL] {str(e)}"
             
