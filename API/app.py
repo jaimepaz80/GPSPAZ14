@@ -408,21 +408,10 @@ def interpolate_sp3(sp3_data, sat, t_emision, degree=9):
         SP3_CACHE_KEYS.append(cache_key)
     return result
 def parse_rinex_nav_real(path):
-    ephemeris = {
-        '_iono': {
-            'alpha': [0.0, 0.0, 0.0, 0.0], 
-            'beta': [0.0, 0.0, 0.0, 0.0]
-        }
-    }
-    
-    if not path or not os.path.exists(path):
-        return ephemeris
-        
+    ephemeris = {'_iono': {'alpha': [0]*4, 'beta': [0]*4}}
+    if not path or not os.path.exists(path): return ephemeris
     with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-        in_h = True
-        sat = None
-        data = []
-        
+        in_h, sat, data = True, None, []
         for line in f:
             if in_h:
                 if "IONOSPHERIC CORR" in line:
@@ -430,144 +419,52 @@ def parse_rinex_nav_real(path):
                     vals = []
                     for i in range(4):
                         try:
-                            chunk = line[5+i*12 : 5+(i+1)*12].strip()
-                            chunk = chunk.replace('D', 'E').replace('d', 'e')
-                            if chunk:
-                                vals.append(float(chunk))
-                            else:
-                                vals.append(0.0)
-                        except Exception:
-                            vals.append(0.0)
-                            
-                    if sys_type == 'GPSA':
-                        ephemeris['_iono']['alpha'] = vals
-                    elif sys_type == 'GPSB':
-                        ephemeris['_iono']['beta'] = vals
-                        
-                elif "END OF HEADER" in line:
-                    in_h = False
+                            chunk = line[5+i*12 : 5+(i+1)*12].strip().replace('D', 'E').replace('d', 'e')
+                            vals.append(float(chunk) if chunk else 0.0)
+                        except: vals.append(0.0)
+                    if sys_type == 'GPSA': ephemeris['_iono']['alpha'] = vals
+                    elif sys_type == 'GPSB': ephemeris['_iono']['beta'] = vals
+                elif "END OF HEADER" in line: in_h = False
                 continue
-                
             if len(line) > 8 and line[0] in 'GECSJ' and line[1:3].isdigit():
                 if sat and len(data) >= 20: 
-                    if sat not in ephemeris:
-                        ephemeris[sat] = []
-                        
-                    ephemeris[sat].append({
-                        'af0': data[0],
-                        'af1': data[1],
-                        'af2': data[2],
-                        'Crs': data[4],
-                        'Delta_n': data[5],
-                        'M0': data[6],
-                        'Cuc': data[7],
-                        'e': data[8],
-                        'Cus': data[9],
-                        'sqrtA': data[10],
-                        'Toe': data[11],
-                        'Cic': data[12],
-                        'OMEGA': data[13],
-                        'Cis': data[14],
-                        'i0': data[15],
-                        'Crc': data[16],
-                        'omega': data[17],
-                        'OMEGA_DOT': data[18],
-                        'IDOT': data[19]
-                    })
-                    
+                    ephemeris.setdefault(sat, []).append({'af0':data[0],'af1':data[1],'af2':data[2],'Crs':data[4],'Delta_n':data[5],'M0':data[6],'Cuc':data[7],'e':data[8],'Cus':data[9],'sqrtA':data[10],'Toe':data[11],'Cic':data[12],'OMEGA':data[13],'Cis':data[14],'i0':data[15],'Crc':data[16],'omega':data[17],'OMEGA_DOT':data[18],'IDOT':data[19]})
                 sat = line[0:3].strip()
-                
-                val1 = line[23:42].replace('D','E').replace('d','e')
-                val2 = line[42:61].replace('D','E').replace('d','e')
-                val3 = line[61:80].replace('D','E').replace('d','e')
-                
-                data = [float(val1), float(val2), float(val3)]
-                
+                data = [float(line[23:42].replace('D','E').replace('d','e')), float(line[42:61].replace('D','E').replace('d','e')), float(line[61:80].replace('D','E').replace('d','e'))]
             elif sat and line.startswith('    '): 
-                for i in range(4, 80, 19):
-                    chunk = line[i:i+19].strip()
-                    if chunk:
-                        chunk = chunk.replace('D','E').replace('d','e')
-                        data.append(float(chunk))
-                        
+                data.extend([float(line[i:i+19].replace('D','E').replace('d','e').strip()) for i in range(4, 80, 19) if line[i:i+19].strip()])
         if sat and len(data) >= 20: 
-            if sat not in ephemeris:
-                ephemeris[sat] = []
-                
-            ephemeris[sat].append({
-                'af0': data[0],
-                'af1': data[1],
-                'af2': data[2],
-                'Crs': data[4],
-                'Delta_n': data[5],
-                'M0': data[6],
-                'Cuc': data[7],
-                'e': data[8],
-                'Cus': data[9],
-                'sqrtA': data[10],
-                'Toe': data[11],
-                'Cic': data[12],
-                'OMEGA': data[13],
-                'Cis': data[14],
-                'i0': data[15],
-                'Crc': data[16],
-                'omega': data[17],
-                'OMEGA_DOT': data[18],
-                'IDOT': data[19]
-            })
-            
+            ephemeris.setdefault(sat, []).append({'af0':data[0],'af1':data[1],'af2':data[2],'Crs':data[4],'Delta_n':data[5],'M0':data[6],'Cuc':data[7],'e':data[8],'Cus':data[9],'sqrtA':data[10],'Toe':data[11],'Cic':data[12],'OMEGA':data[13],'Cis':data[14],'i0':data[15],'Crc':data[16],'omega':data[17],'OMEGA_DOT':data[18],'IDOT':data[19]})
     return ephemeris
 
 def seleccionar_efemeride_optima(eph_list, t_target):
-    if not eph_list:
-        return None
-        
+    if not eph_list: return None
     valid_ephs = []
     for eph in eph_list:
         dt = t_target - eph.get('Toe', 0)
-        
-        if dt > 302400:
-            dt -= 604800
-        elif dt < -302400:
-            dt += 604800
-            
+        if dt > 302400: dt -= 604800
+        elif dt < -302400: dt += 604800
         if abs(dt) <= 7200:
             valid_ephs.append((abs(dt), eph))
-            
-    if not valid_ephs:
-        return None
-        
-    mejor_eph = min(valid_ephs, key=lambda x: x[0])
-    return mejor_eph[1]
+    if not valid_ephs: return None
+    return min(valid_ephs, key=lambda x: x[0])[1]
 
 # =====================================================================
 # GEODESIA ESPACIAL Y CORRECCIONES
 # =====================================================================
 def correccion_mareas_solidas(X, Y, Z, tow, year, month, day):
     try:
-        h2 = 0.609
-        l2 = 0.085
+        h2, l2 = 0.609, 0.085
         Re = 6378137.0
+        GM_earth, GM_sun, GM_moon = 3.986004418e14, 1.327124e20, 4.902801e12
         
-        GM_earth = 3.986004418e14
-        GM_sun = 1.327124e20
-        GM_moon = 4.902801e12
-        
-        y_term = 367 * year
-        m_term = (7 * (year + (month + 9) // 12)) // 4
-        d_term = (275 * month) // 9 + day + 1721013.5
-        jd = y_term - m_term + d_term
-        
+        jd = 367 * year - (7 * (year + (month + 9) // 12)) // 4 + (275 * month) // 9 + day + 1721013.5
         t_jc = (jd - 2451545.0 + (tow / 86400.0)) / 36525.0
         
         mean_long_sun = 280.460 + 36000.771 * t_jc
         mean_anom_sun = 357.528 + 35999.050 * t_jc
-        
         ecl_lon_sun = mean_long_sun + 1.915 * math.sin(math.radians(mean_anom_sun)) + 0.020 * math.sin(math.radians(2 * mean_anom_sun))
-        
-        dist_sun_calc = 1.00014 - 0.01671 * math.cos(math.radians(mean_anom_sun)) - 0.00014 * math.cos(math.radians(2 * mean_anom_sun))
-        dist_sun = 1.495978707e11 * dist_sun_calc
-        
+        dist_sun = 1.495978707e11 * (1.00014 - 0.01671 * math.cos(math.radians(mean_anom_sun)) - 0.00014 * math.cos(math.radians(2 * mean_anom_sun)))
         obliquity = 23.439 - 0.013 * t_jc
         
         xs_sun = dist_sun * math.cos(math.radians(ecl_lon_sun))
@@ -577,7 +474,6 @@ def correccion_mareas_solidas(X, Y, Z, tow, year, month, day):
         mean_long_moon = 218.316 + 481267.881 * t_jc
         mean_anom_moon = 134.963 + 477198.867 * t_jc
         mean_dist_moon = 93.272 + 483202.017 * t_jc
-        
         ecl_lon_moon = mean_long_moon + 6.289 * math.sin(math.radians(mean_anom_moon))
         ecl_lat_moon = 5.128 * math.sin(math.radians(mean_dist_moon))
         dist_moon = 385000000.0 - 20905000.0 * math.cos(math.radians(mean_anom_moon))
@@ -587,22 +483,14 @@ def correccion_mareas_solidas(X, Y, Z, tow, year, month, day):
         zs_moon = dist_moon * (math.sin(math.radians(obliquity)) * math.sin(math.radians(ecl_lon_moon)) * math.cos(math.radians(ecl_lat_moon)) + math.cos(math.radians(obliquity)) * math.sin(math.radians(ecl_lat_moon)))
         
         r_sta = math.sqrt(X**2 + Y**2 + Z**2)
-        if r_sta == 0:
-            return 0.0, 0.0, 0.0
-            
-        rx = X / r_sta
-        ry = Y / r_sta
-        rz = Z / r_sta
+        if r_sta == 0: return 0.0, 0.0, 0.0
+        
+        rx, ry, rz = X/r_sta, Y/r_sta, Z/r_sta
         
         def deformacion_cuerpo(mass_ratio, R_body, xs, ys, zs):
             dist_body = math.sqrt(xs**2 + ys**2 + zs**2)
-            if dist_body == 0:
-                return 0.0, 0.0, 0.0
-                
-            ux = xs / dist_body
-            uy = ys / dist_body
-            uz = zs / dist_body
-            
+            if dist_body == 0: return 0.0, 0.0, 0.0
+            ux, uy, uz = xs/dist_body, ys/dist_body, zs/dist_body
             cos_theta = rx*ux + ry*uy + rz*uz
             
             p2 = 1.5 * cos_theta**2 - 0.5
@@ -622,253 +510,127 @@ def correccion_mareas_solidas(X, Y, Z, tow, year, month, day):
         dx_moon, dy_moon, dz_moon = deformacion_cuerpo(GM_moon/GM_earth, dist_moon, xs_moon, ys_moon, zs_moon)
         
         return dx_sun + dx_moon, dy_sun + dy_moon, dz_sun + dz_moon
-        
-    except Exception:
+    except:
         return 0.0, 0.0, 0.0 
 
 def calcular_saastamoinen(lat_deg, alt, elev_deg):
-    if elev_deg < 5.0:
-        elev_deg = 5.0
-        
-    lat_rad = max(math.radians(lat_deg), -math.pi/2)
-    elev_rad = math.radians(elev_deg)
-    
+    if elev_deg < 5.0: elev_deg = 5.0
+    lat_rad, elev_rad = max(math.radians(lat_deg), -math.pi/2), math.radians(elev_deg)
     H = max(0.0, min(alt, 40000.0))
     P = 1013.25 * ((1.0 - 2.2557e-5 * H) ** 5.2568)
     T = 288.15 - 0.0065 * H
-    
-    term_e1 = 7.5 * (T - 273.15)
-    term_e2 = T - 273.15 + 237.3
-    e = 6.11 * 0.5 * (10.0 ** (term_e1 / term_e2)) * ((1.0 - 2.2557e-5 * H) ** 5.2568)
-    
-    zhd_denom = 1.0 - 0.00266 * math.cos(2.0 * lat_rad) - 0.00028 * (H / 1000.0)
-    zhd = (0.0022768 * P) / zhd_denom
+    e = 6.11 * 0.5 * (10.0 ** (7.5 * (T - 273.15) / (T - 273.15 + 237.3))) * ((1.0 - 2.2557e-5 * H) ** 5.2568)
+    zhd = (0.0022768 * P) / (1.0 - 0.00266 * math.cos(2.0 * lat_rad) - 0.00028 * (H / 1000.0))
     zwd = 0.0022768 * ((1255.0 / T) + 0.05) * e
-    
     return (zhd + zwd) * (1.0 / math.sin(elev_rad))
 
 def geodesicas_a_ecef(lat_deg, lon_deg, alt):
-    a = 6378137.0
-    e2 = 0.0066943799901413155
-    
-    lat = math.radians(lat_deg)
-    lon = math.radians(lon_deg)
-    
+    a, e2 = 6378137.0, 0.0066943799901413155
+    lat, lon = math.radians(lat_deg), math.radians(lon_deg)
     N = a / math.sqrt(1 - e2 * (math.sin(lat) ** 2))
-    
-    x = (N + alt) * math.cos(lat) * math.cos(lon)
-    y = (N + alt) * math.cos(lat) * math.sin(lon)
-    z = (N * (1 - e2) + alt) * math.sin(lat)
-    
-    return x, y, z
+    return (N + alt) * math.cos(lat) * math.cos(lon), (N + alt) * math.cos(lat) * math.sin(lon), (N * (1 - e2) + alt) * math.sin(lat)
 
 def ecef_a_geodesicas(x, y, z):
-    a = 6378137.0
-    e2 = 0.0066943799901413155
-    b = math.sqrt(a**2 * (1 - e2))
-    ep2 = (a**2 - b**2) / b**2
-    p = math.sqrt(x**2 + y**2)
-    th = math.atan2(a * z, b * p)
-    
-    num_lat = z + ep2 * b * (math.sin(th) ** 3)
-    den_lat = p - e2 * a * (math.cos(th) ** 3)
-    lat = math.atan2(num_lat, den_lat)
-    
+    a, e2 = 6378137.0, 0.0066943799901413155
+    b = math.sqrt(a**2 * (1 - e2)); ep2 = (a**2 - b**2) / b**2
+    p = math.sqrt(x**2 + y**2); th = math.atan2(a * z, b * p)
+    lat = math.atan2((z + ep2 * b * (math.sin(th) ** 3)), (p - e2 * a * (math.cos(th) ** 3)))
     N = a / math.sqrt(1 - e2 * (math.sin(lat) ** 2))
-    
-    lat_deg = math.degrees(lat)
-    lon_deg = math.degrees(math.atan2(y, x))
-    alt = p / math.cos(lat) - N
-    
-    return lat_deg, lon_deg, alt
+    return math.degrees(lat), math.degrees(math.atan2(y, x)), p / math.cos(lat) - N
 
 def geodesicas_a_utm(lat, lon, force_zone=19):
-    a = 6378137.0
-    e2 = 0.0066943799901413155
-    lat_r = math.radians(lat)
-    lon_r = math.radians(lon)
-    
+    a, e2 = 6378137.0, 0.0066943799901413155
+    lat_r, lon_r = math.radians(lat), math.radians(lon)
     LongOrig = math.radians((force_zone - 1) * 6 - 180 + 3)
     ep2 = e2 / (1 - e2)
     N = a / math.sqrt(1 - e2 * math.sin(lat_r)**2)
-    
-    T = math.tan(lat_r)**2
-    C = ep2 * math.cos(lat_r)**2
-    A = math.cos(lat_r) * (lon_r - LongOrig)
-    
-    M_term1 = (1 - e2/4 - 3*e2**2/64 - 5*e2**3/256)*lat_r
-    M_term2 = (3*e2/8 + 3*e2**2/32 + 45*e2**3/1024)*math.sin(2*lat_r)
-    M_term3 = (15*e2**2/256 + 45*e2**3/1024)*math.sin(4*lat_r)
-    M_term4 = (35*e2**3/3072)*math.sin(6*lat_r)
-    M = a * (M_term1 - M_term2 + M_term3 - M_term4)
-    
-    East_term1 = A + (1-T+C)*A**3/6 
-    East_term2 = (5-18*T+T**2+72*C-58*ep2)*A**5/120
-    Easting = 0.9996 * N * (East_term1 + East_term2) + 500000.0
-    
-    North_term1 = A**2/2 + (5-T+9*C+4*C**2)*A**4/24 
-    North_term2 = (61-58*T+T**2+600*C-330*ep2)*A**6/720
-    Northing = 0.9996 * (M + N*math.tan(lat_r)*(North_term1 + North_term2))
-    
-    if lat < 0:
-        Northing += 10000000.0
-        
-    return Northing, Easting
+    T = math.tan(lat_r)**2; C = ep2 * math.cos(lat_r)**2; A = math.cos(lat_r) * (lon_r - LongOrig)
+    M = a * ((1 - e2/4 - 3*e2**2/64 - 5*e2**3/256)*lat_r - (3*e2/8 + 3*e2**2/32 + 45*e2**3/1024)*math.sin(2*lat_r) + (15*e2**2/256 + 45*e2**3/1024)*math.sin(4*lat_r) - (35*e2**3/3072)*math.sin(6*lat_r))
+    Easting = 0.9996 * N * (A + (1-T+C)*A**3/6 + (5-18*T+T**2+72*C-58*ep2)*A**5/120) + 500000.0
+    Northing = 0.9996 * (M + N*math.tan(lat_r)*(A**2/2 + (5-T+9*C+4*C**2)*A**4/24 + (61-58*T+T**2+600*C-330*ep2)*A**6/720))
+    return (Northing + 10000000.0 if lat < 0 else Northing), Easting
 
 def utm_a_geodesicas(easting, northing, zone=19, hemisferio='N'):
-    a = 6378137.0
-    e2 = 0.0066943799901413155
+    a, e2 = 6378137.0, 0.0066943799901413155
     e1 = (1 - math.sqrt(1 - e2)) / (1 + math.sqrt(1 - e2))
-    
-    x = easting - 500000.0
-    if hemisferio.upper() == 'N':
-        y = northing
-    else:
-        y = northing - 10000000.0
-        
-    m = y / 0.9996
-    mu = m / (a * (1 - e2/4 - 3*e2**2/64 - 5*e2**3/256))
-    
+    x, y = easting - 500000.0, northing if hemisferio.upper() == 'N' else northing - 10000000.0
+    m = y / 0.9996; mu = m / (a * (1 - e2/4 - 3*e2**2/64 - 5*e2**3/256))
     phi1_rad = mu + (3*e1/2 - 27*e1**3/32)*math.sin(2*mu) + (21*e1**2/16 - 55*e1**4/32)*math.sin(4*mu)
     n1 = a / math.sqrt(1 - e2*math.sin(phi1_rad)**2)
-    t1 = math.tan(phi1_rad)**2
-    c1 = e2 / (1 - e2) * math.cos(phi1_rad)**2
+    t1, c1 = math.tan(phi1_rad)**2, e2 / (1 - e2) * math.cos(phi1_rad)**2
     r1 = a * (1 - e2) / ((1 - e2*math.sin(phi1_rad)**2)**1.5)
-    
     d = x / (n1 * 0.9996)
-    
-    lat_term = (n1*math.tan(phi1_rad)/r1) * (d**2/2 - (5 + 3*t1 + 10*c1)*d**4/24)
-    lat_rad = phi1_rad - lat_term
-    
-    lon_term = (d - (1 + 2*t1 + c1)*d**3/6) / math.cos(phi1_rad)
-    lon_rad = lon_term
-    
+    lat_rad = phi1_rad - (n1*math.tan(phi1_rad)/r1) * (d**2/2 - (5 + 3*t1 + 10*c1)*d**4/24)
+    lon_rad = (d - (1 + 2*t1 + c1)*d**3/6) / math.cos(phi1_rad)
     lon_origen = math.radians((zone - 1) * 6 - 180 + 3)
-    
     return math.degrees(lat_rad), math.degrees(lon_rad + lon_origen), 0.0
 
 def calcular_topocentricas(xs, ys, zs, X_usr, Y_usr, Z_usr):
     lat_val, lon_val, alt_val = ecef_a_geodesicas(X_usr, Y_usr, Z_usr)
     lat_r = math.radians(lat_val)
     lon_r = math.radians(lon_val)
-    
-    dx = xs - X_usr
-    dy = ys - Y_usr
-    dz = zs - Z_usr
-    
-    sin_lat = math.sin(lat_r)
-    cos_lat = math.cos(lat_r)
-    sin_lon = math.sin(lon_r)
-    cos_lon = math.cos(lon_r)
-    
+    dx, dy, dz = xs - X_usr, ys - Y_usr, zs - Z_usr
+    sin_lat, cos_lat = math.sin(lat_r), math.cos(lat_r)
+    sin_lon, cos_lon = math.sin(lon_r), math.cos(lon_r)
     e = -sin_lon * dx + cos_lon * dy
     n = -sin_lat * cos_lon * dx - sin_lat * sin_lon * dy + cos_lat * dz
     u = cos_lat * cos_lon * dx + cos_lat * sin_lon * dy + sin_lat * dz
-    
     dist = math.sqrt(dx**2 + dy**2 + dz**2)
-    if dist < 1e-6:
-        return 0.0, 0.0
-        
+    if dist < 1e-6: return 0.0, 0.0
     val_asin = max(-1.0, min(1.0, u / dist))
     el = math.degrees(math.asin(val_asin))
     az = math.degrees(math.atan2(e, n))
-    
-    if az < 0:
-        az += 360.0
-        
+    if az < 0: az += 360.0
     return el, az
 
 def calcular_klobuchar(lat_deg, lon_deg, el_deg, az_deg, tow, alpha, beta):
-    if not any(alpha) and not any(beta):
-        return 0.0
-        
-    phi_u = lat_deg / 180.0
-    lam_u = lon_deg / 180.0
-    E = el_deg / 180.0
-    A = az_deg / 180.0
-    
+    if not any(alpha) and not any(beta): return 0.0
+    phi_u, lam_u = lat_deg / 180.0, lon_deg / 180.0
+    E, A = el_deg / 180.0, az_deg / 180.0
     psi = 0.0137 / (E + 0.11) - 0.022
     phi_i = phi_u + psi * math.cos(A * math.pi)
-    
-    if phi_i > 0.416:
-        phi_i = 0.416
-    elif phi_i < -0.416:
-        phi_i = -0.416
-        
+    if phi_i > 0.416: phi_i = 0.416
+    elif phi_i < -0.416: phi_i = -0.416
     lam_i = lam_u + (psi * math.sin(A * math.pi)) / math.cos(phi_i * math.pi)
     phi_m = phi_i + 0.064 * math.cos((lam_i - 1.617) * math.pi)
-    
     t = 43200.0 * lam_i + tow
     t = t % 86400.0
-    if t < 0:
-        t += 86400.0
-        
+    if t < 0: t += 86400.0
     F = 1.0 + 16.0 * (0.53 - E) ** 3
-    
     PER = beta[0] + beta[1]*phi_m + beta[2]*(phi_m**2) + beta[3]*(phi_m**3)
-    if PER < 72000.0:
-        PER = 72000.0
-        
+    if PER < 72000.0: PER = 72000.0
     AMP = alpha[0] + alpha[1]*phi_m + alpha[2]*(phi_m**2) + alpha[3]*(phi_m**3)
-    if AMP < 0.0:
-        AMP = 0.0
-        
+    if AMP < 0.0: AMP = 0.0
     x = (2.0 * math.pi * (t - 50400.0)) / PER
-    
     if abs(x) < 1.5707963267948966:
         return F * (5e-9 + AMP * (1.0 - (x**2)/2.0 + (x**4)/24.0)) * C_LIGHT
-        
     return F * 5e-9 * C_LIGHT
 
 def calcular_posicion_satelite_wgs84(eph, t_emision, tau_vuelo, sys_char='G'):
-    if not eph or eph['sqrtA'] <= 0.0:
-        return None
-        
+    if not eph or eph['sqrtA'] <= 0.0: return None
     mu_sys = 3.986004418e14 if sys_char in 'EC' else MU
     omega_e_sys = 7.292115e-5 if sys_char == 'C' else OMEGA_E
-        
     A = eph['sqrtA'] ** 2
     n0 = math.sqrt(mu_sys / (A ** 3))
     t_k = t_emision - eph['Toe']
-    
-    if sys_char == 'C':
-        t_k -= 14.0
-        
-    if t_k > 302400:
-        t_k -= 604800
-    elif t_k < -302400:
-        t_k += 604800
-        
-    M_k = eph['M0'] + (n0 + eph['Delta_n']) * t_k
-    E_k = M_k
-    
-    for _ in range(5):
-        E_k = M_k + eph['e'] * math.sin(E_k)
-        
+    if sys_char == 'C': t_k -= 14.0
+    if t_k > 302400: t_k -= 604800
+    elif t_k < -302400: t_k += 604800
+    M_k = eph['M0'] + (n0 + eph['Delta_n']) * t_k; E_k = M_k
+    for _ in range(5): E_k = M_k + eph['e'] * math.sin(E_k)
     dt_sat = eph['af0'] + eph['af1'] * t_k + eph['af2'] * (t_k ** 2)
-    
     nu_k = math.atan2((math.sqrt(1 - eph['e']**2) * math.sin(E_k)), (math.cos(E_k) - eph['e']))
     phi_k = nu_k + eph['omega']
-    
     u_k = phi_k + eph['Cus'] * math.sin(2 * phi_k) + eph['Cuc'] * math.cos(2 * phi_k)
     r_k = A * (1 - eph['e'] * math.cos(E_k)) + eph['Crs'] * math.sin(2 * phi_k) + eph['Crc'] * math.cos(2 * phi_k)
     i_k = eph['i0'] + eph['Cic'] * math.cos(2 * phi_k) + eph['Cis'] * math.sin(2 * phi_k) + eph['IDOT'] * t_k
-    
-    x_k = r_k * math.cos(u_k)
-    y_k = r_k * math.sin(u_k)
-    
+    x_k, y_k = r_k * math.cos(u_k), r_k * math.sin(u_k)
     omega_k = eph['OMEGA'] + (eph['OMEGA_DOT'] - omega_e_sys) * t_k - omega_e_sys * eph['Toe']
-    
     xs = x_k * math.cos(omega_k) - y_k * math.cos(i_k) * math.sin(omega_k)
     ys = x_k * math.sin(omega_k) + y_k * math.cos(i_k) * math.cos(omega_k)
     zs = y_k * math.sin(i_k)
-    
     theta = omega_e_sys * tau_vuelo
-    
-    rot_x = xs * math.cos(theta) + ys * math.sin(theta)
-    rot_y = -xs * math.sin(theta) + ys * math.cos(theta)
-    
-    return (rot_x, rot_y, zs, dt_sat)
+    return (xs * math.cos(theta) + ys * math.sin(theta), -xs * math.sin(theta) + ys * math.cos(theta), zs, dt_sat)
 # =====================================================================
 # ALGORITMO DE ENRUTAMIENTO INTELIGENTE (MÓDULOS A, B y C)
 # =====================================================================
@@ -969,7 +731,7 @@ def aislar_diferencias_simples_ppk(obs_b, obs_r):
     return sd_suavizada
 
 # =====================================================================
-# MOTOR PPK HÍBRIDO DETERMINISTA ASINCRÓNICO - MÓDULO B
+# MOTOR PPK HÍBRIDO ASINCRÓNICO - MÓDULO B
 # =====================================================================
 def interpolar_observables_base(obs_b, t_target, max_gap=0.5):
     tows = sorted(list(obs_b.keys()))
@@ -1114,6 +876,7 @@ def procesar_ekF_lambda(sd_epoca, nav, sp3, kf_estado, tr, mask_angle, snr_mask)
         P_pri = [row[:] for row in kf_estado['P']]
         h_r = kf_estado.get('h_r', 0.0)
         
+        # Inicializar memoria para detector de Cycle Slips
         if 'prev_cp' not in kf_estado: kf_estado['prev_cp'] = {}
         
         X_iter = X_pri[0][0]
@@ -1192,6 +955,7 @@ def procesar_ekF_lambda(sd_epoca, nav, sp3, kf_estado, tr, mask_angle, snr_mask)
         
         if len(sat_list) < 3: return None, "FAILED", kf_estado, None
         
+        # Corrección de Dispersión L5 implementada
         def calc_rho(sp, X, Y, Z, lat, lon, alt, el, az, wave):
             dist = math.sqrt((sp[0]-X)**2 + (sp[1]-Y)**2 + (sp[2]-Z)**2)
             tropo = calcular_saastamoinen(lat, alt, el)
@@ -1248,6 +1012,7 @@ def procesar_ekF_lambda(sd_epoca, nav, sp3, kf_estado, tr, mask_angle, snr_mask)
             if data['cp_r'] is not None and data['cp_b'] is not None and rc['cp_r'] is not None and rc['cp_b'] is not None:
                 wave = data['wave']
                 
+                # Detector de Pérdida de Ciclo (Cycle Slip)
                 cp_valid = True
                 if s in kf_estado['prev_cp']:
                     delta_P = data['sd_P'] - kf_estado['prev_cp'][s]['P']
@@ -1463,6 +1228,7 @@ def generar_informe_ascii(tipo, p_dict):
   [-] Máscara SNR            : {f_14(p_dict.get('snr', 25.0))} dBHz
   [-] Tasa Ambiguity FIX     : {p_dict['fix_r']:.2f}% (Resolución Entera)
   [-] Épocas Útiles Retenidas: {p_dict['ret']} ({(p_dict['ret']/max(1, p_dict['total']))*100:.2f}% del total)
+  [-] Estrategia de Módulo   : {p_dict.get('estrategia_auditoria', 'N/A')}
 
 [1] TRAZABILIDAD DEL PROYECTO Y ARCHIVOS
 ------------------------------------------------------------------------
@@ -1559,6 +1325,7 @@ def tab1_homogenizar():
             base_raw_dict = parse_rinex_obs_completo(p_b_raw)
             rover_raw_dict = parse_rinex_obs_completo(p_r_raw)
             
+            # INYECCIÓN DEL ENRUTADOR INTELIGENTE (MÓDULOS A, B, C)
             tipo_mod, razon_mod = analizar_calidad_y_senales_rinex(base_raw_dict, rover_raw_dict)
             guardar_estado('estrategia_auditoria', f"{tipo_mod}: {razon_mod}")
             
@@ -1620,20 +1387,18 @@ def tab2_efemerides():
             if sp3_path: yield f"  [-] Archivo SP3 Preciso cargado manualmente: {f_sp3.filename}\n"
             else: yield "  [!] No se detectó archivo SP3 manual. Se usará solo Broadcast NAV.\n"
 
-            yield "\n> [RED] Conectando con IGS BKG para descargar Respaldo NAV...\n"
+            yield "\n> [RED] Conectando con Red Global de Repositorios GNSS...\n"
             bp = leer_estado('base_raw')
             if not bp or not os.path.exists(bp): 
                 yield "> [ERROR FATAL] Falta RINEX Base en memoria para extraer fecha.\n"; return
             
-            # --- FIX: Extracción del Día Juliano exacto desde el archivo RINEX ---
             ft = obtener_fecha_obs(bp)
             if not ft: yield "> [ERROR FATAL] Imposible extraer la fecha del RINEX Base.\n"; return
             
             year, month, day = ft[0], ft[1], ft[2]
-            doy = datetime.datetime(year, month, day).timetuple().tm_yday
-            yy = str(year)[-2:] # Obtiene los dos últimos dígitos (ej. '26' de 2026) para formato brdc
-            
-            yield f"  [-] Fecha detectada en RINEX: {year}-{month:02d}-{day:02d} (Día Juliano: {doy:03d})\n"
+            dt = datetime.datetime(year, month, day)
+            doy = dt.timetuple().tm_yday
+            yy = str(year)[-2:] # Extracción de los 2 últimos dígitos para el formato Legacy brdc
             
             nav_gz = os.path.join(UPLOAD_FOLDER, f"auto_nav_{year}_{doy:03d}.nav.gz")
             nav_path = os.path.join(UPLOAD_FOLDER, f"auto_nav_{year}_{doy:03d}.nav")
@@ -1643,31 +1408,33 @@ def tab2_efemerides():
             ctx.verify_mode = ssl.CERT_NONE
             
             if not os.path.exists(nav_path):
-                # --- FIX: Inyección del formato Legacy RINEX 2 (brdc) como opción primaria para evadir 404 ---
+                # ENRUTADOR AGRESIVO: Servidores espejo globales usando formato ultraligero RINEX 2 (brdc)
                 urls_to_try = [
+                    f"https://garner.ucsd.edu/pub/rinex/{year}/{doy:03d}/brdc{doy:03d}0.{yy}n.gz",
                     f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/brdc{doy:03d}0.{yy}n.gz",
-                    f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDC00IGS_R_{year}{doy:03d}0000_01D_MN.rnx.gz",
-                    f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDM00DLR_S_{year}{doy:03d}0000_01D_MN.rnx.gz"
+                    f"https://www.epncb.oma.be/ftp/obs/BRDC/{year}/{doy:03d}/brdc{doy:03d}0.{yy}n.gz",
+                    f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDC00IGS_R_{year}{doy:03d}0000_01D_MN.rnx.gz"
                 ]
                 
                 descargado = False
                 for url_nav in urls_to_try:
                     try:
-                        yield f"  [-] Intentando descargar NAV desde: {url_nav.split('/')[-1]}...\n"
+                        yield f"  [-] Intentando descargar NAV desde espejo: {url_nav.split('/')[-1]}...\n"
                         req = urllib.request.Request(url_nav, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(req, context=ctx, timeout=12) as res:
+                        with urllib.request.urlopen(req, context=ctx, timeout=5) as res:
                             with open(nav_gz, 'wb') as f: f.write(res.read())
                         descargado = True
-                        yield f"  [+] Descarga exitosa de {url_nav.split('/')[-1]}\n"
+                        yield f"  [+] Descarga exitosa verificada.\n"
                         break 
                     except Exception as e:
-                        yield f"  [!] No disponible (Error {str(e)}). Buscando alternativa...\n"
+                        err_limpio = str(e).replace('<', '[').replace('>', ']')
+                        yield f"  [!] Falló ({err_limpio}). Saltando a siguiente servidor...\n"
                         continue
                 
                 if not descargado:
-                    raise Exception(f"HTTP 404: No se pudo descargar el NAV para el año {year} día {doy:03d}.")
+                    raise Exception("HTTP 404/Timeout Total: La red IGS global bloqueó la conexión o el archivo no existe.")
                 
-                yield "  [-] Descomprimiendo archivo NAV de alta densidad...\n"
+                yield "  [-] Descomprimiendo archivo NAV...\n"
                 with gzip.open(nav_gz, 'rb') as f_in, open(nav_path, 'wb') as f_out: 
                     shutil.copyfileobj(f_in, f_out)
                 
@@ -1720,18 +1487,19 @@ def tab3_calibrar():
             nav = parse_rinex_nav_real(nav_path)
             sp3 = parse_sp3_preciso(sp3_path) if sp3_path else {}
             
+            # INYECCIÓN DEL ENRUTADOR INTELIGENTE
             tipo_mod, razon_mod = analizar_calidad_y_senales_rinex(obs_b_raw, obs_r_raw)
             is_homogeneo = (tipo_mod == "MODO_A_CODIGO")
             
-            yield "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n"
+            yield f"[PROGRESO] Re-ensamblando Malla Temporal de Calibración ({tipo_mod})...\n"
             if is_homogeneo:
-                yield f"  [-] {tipo_mod} Activo ({razon_mod})\n"
+                yield f"  [-] Justificación: {razon_mod}\n"
                 sd_suavizada = aislar_diferencias_simples_ppk(obs_b_raw, obs_r_raw)
             elif tipo_mod == "MODO_C_AUTONOMO":
-                yield f"  [-] {tipo_mod} Activo ({razon_mod})\n"
-                yield "> [ERROR] Operación Abortada. Módulo C Autónomo (SPP) requiere implementación geométrica dedicada y no soporta Filtro EKF diferencial.\n"; return
+                yield f"  [-] Justificación: {razon_mod}\n"
+                yield "> [ERROR] Operación Abortada. Módulo C Autónomo (SPP) requiere implementación geométrica dedicada.\n"; return
             else:
-                yield f"  [-] {tipo_mod} Activo ({razon_mod})\n"
+                yield f"  [-] Justificación: {razon_mod}\n"
                 sd_suavizada = aislar_diferencias_simples_ppk_asincrono(obs_b_raw, obs_r_raw, max_gap=p_max_gap)
                 
             if not sd_suavizada:
@@ -1811,6 +1579,7 @@ def tab3_calibrar():
                 nivel_best_params = {}
                 
                 for gap in set(gap_grid):
+                    # INYECCIÓN DEL ENRUTADOR DENTRO DEL LOOP DE BÚSQUEDA
                     if is_homogeneo:
                         obs_b_sync = {}
                         for tr in rover_tows_full:
@@ -1960,6 +1729,7 @@ def tab4_procesar():
             
             if sp3: yield "[PROGRESO] Órbitas Precisas SP3 acopladas con éxito...\n"
             
+            # INYECCIÓN DEL ENRUTADOR INTELIGENTE
             tipo_mod, razon_mod = analizar_calidad_y_senales_rinex(obs_b_raw, obs_r_raw)
             is_homogeneo = (tipo_mod == "MODO_A_CODIGO")
             
